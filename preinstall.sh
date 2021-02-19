@@ -1,11 +1,7 @@
 #!/bin/bash
 
-#
-# NOTE: deprecated! Try libvips installation: https://libvips.github.io/libvips/install.html
-#
-
-vips_version_minimum=8.9.2
-vips_version_latest_major_minor=8.9
+vips_version_minimum=8.7.2
+vips_version_latest_major_minor=8.7
 vips_version_latest_patch=2
 vips_version_full="$vips_version_latest_major_minor.$vips_version_latest_patch"
 

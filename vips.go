@@ -45,7 +45,6 @@ type VipsMemoryInfo struct {
 
 // vipsSaveOptions represents the internal option used to talk with libvips.
 type vipsSaveOptions struct {
-	Speed          int
 	Quality        int
 	Compression    int
 	Type           ImageType
@@ -53,10 +52,8 @@ type vipsSaveOptions struct {
 	NoProfile      bool
 	StripMetadata  bool
 	Lossless       bool
-	InputICC       string // Absolute path to the input ICC profile
 	OutputICC      string // Absolute path to the output ICC profile
 	Interpretation Interpretation
-	Palette        bool
 }
 
 type vipsWatermarkOptions struct {
@@ -191,9 +188,6 @@ func VipsIsTypeSupported(t ImageType) bool {
 	if t == HEIF {
 		return int(C.vips_type_find_bridge(C.HEIF)) != 0
 	}
-	if t == AVIF {
-		return int(C.vips_type_find_bridge(C.HEIF)) != 0
-	}
 	return false
 }
 
@@ -216,29 +210,11 @@ func VipsIsTypeSupportedSave(t ImageType) bool {
 	if t == HEIF {
 		return int(C.vips_type_find_save_bridge(C.HEIF)) != 0
 	}
-	if t == AVIF {
-		return int(C.vips_type_find_save_bridge(C.HEIF)) != 0
-	}
 	return false
-}
-
-func vipsExifStringTag(image *C.VipsImage, tag string) string {
-	return vipsExifShort(C.GoString(C.vips_exif_tag(image, C.CString(tag))))
-}
-
-func vipsExifIntTag(image *C.VipsImage, tag string) int {
-	return int(C.vips_exif_tag_to_int(image, C.CString(tag)))
 }
 
 func vipsExifOrientation(image *C.VipsImage) int {
 	return int(C.vips_exif_orientation(image))
-}
-
-func vipsExifShort(s string) string {
-	if strings.Contains(s, " (") {
-		return s[:strings.Index(s, "(")-1]
-	}
-	return s
 }
 
 func vipsHasAlpha(image *C.VipsImage) bool {
@@ -263,37 +239,8 @@ func vipsRotate(image *C.VipsImage, angle Angle) (*C.VipsImage, error) {
 	var out *C.VipsImage
 	defer C.g_object_unref(C.gpointer(image))
 
-	err := C.vips_rotate_bridge(image, &out, C.int(angle))
+	err := C.vips_rotate_bimg(image, &out, C.int(angle))
 	if err != 0 {
-		return nil, catchVipsError()
-	}
-
-	return out, nil
-}
-
-func vipsAutoRotate(image *C.VipsImage) (*C.VipsImage, error) {
-	var out *C.VipsImage
-	defer C.g_object_unref(C.gpointer(image))
-
-	err := C.vips_autorot_bridge(image, &out)
-	if err != 0 {
-		return nil, catchVipsError()
-	}
-
-	return out, nil
-}
-
-func vipsTransformICC(image *C.VipsImage, inputICC string, outputICC string) (*C.VipsImage, error) {
-	var out *C.VipsImage
-	defer C.g_object_unref(C.gpointer(image))
-
-	outputIccPath := C.CString(outputICC)
-	defer C.free(unsafe.Pointer(outputIccPath))
-	inputIccPath := C.CString(inputICC)
-	defer C.free(unsafe.Pointer(inputIccPath))
-	err := C.vips_icc_transform_with_default_bridge(image, &out, outputIccPath, inputIccPath)
-	//err := C.vips_icc_transform_bridge2(image, &outImage, outputIccPath, inputIccPath)
-	if int(err) != 0 {
 		return nil, catchVipsError()
 	}
 
@@ -440,21 +387,6 @@ func vipsPreSave(image *C.VipsImage, o *vipsSaveOptions) (*C.VipsImage, error) {
 		image = outImage
 	}
 
-	if o.OutputICC != "" && o.InputICC != "" {
-		outputIccPath := C.CString(o.OutputICC)
-		defer C.free(unsafe.Pointer(outputIccPath))
-
-		inputIccPath := C.CString(o.InputICC)
-		defer C.free(unsafe.Pointer(inputIccPath))
-
-		err := C.vips_icc_transform_with_default_bridge(image, &outImage, outputIccPath, inputIccPath)
-		if int(err) != 0 {
-			return nil, catchVipsError()
-		}
-		C.g_object_unref(C.gpointer(image))
-		return outImage, nil
-	}
-
 	if o.OutputICC != "" && vipsHasProfile(image) {
 		outputIccPath := C.CString(o.OutputICC)
 		defer C.free(unsafe.Pointer(outputIccPath))
@@ -493,8 +425,6 @@ func vipsSave(image *C.VipsImage, o vipsSaveOptions) ([]byte, error) {
 	quality := C.int(o.Quality)
 	strip := C.int(boolToInt(o.StripMetadata))
 	lossless := C.int(boolToInt(o.Lossless))
-	palette := C.int(boolToInt(o.Palette))
-	speed := C.int(o.Speed)
 
 	if o.Type != 0 && !IsTypeSupportedSave(o.Type) {
 		return nil, fmt.Errorf("VIPS cannot save to %#v", ImageTypes[o.Type])
@@ -504,13 +434,11 @@ func vipsSave(image *C.VipsImage, o vipsSaveOptions) ([]byte, error) {
 	case WEBP:
 		saveErr = C.vips_webpsave_bridge(tmpImage, &ptr, &length, strip, quality, lossless)
 	case PNG:
-		saveErr = C.vips_pngsave_bridge(tmpImage, &ptr, &length, strip, C.int(o.Compression), quality, interlace, palette)
+		saveErr = C.vips_pngsave_bridge(tmpImage, &ptr, &length, strip, C.int(o.Compression), quality, interlace)
 	case TIFF:
 		saveErr = C.vips_tiffsave_bridge(tmpImage, &ptr, &length)
 	case HEIF:
 		saveErr = C.vips_heifsave_bridge(tmpImage, &ptr, &length, strip, quality, lossless)
-	case AVIF:
-		saveErr = C.vips_avifsave_bridge(tmpImage, &ptr, &length, strip, quality, lossless, speed)
 	default:
 		saveErr = C.vips_jpegsave_bridge(tmpImage, &ptr, &length, strip, quality, interlace)
 	}
@@ -548,12 +476,17 @@ func getImageBuffer(image *C.VipsImage) ([]byte, error) {
 }
 
 func vipsExtract(image *C.VipsImage, left, top, width, height int) (*C.VipsImage, error) {
-	var buf *C.VipsImage
 	defer C.g_object_unref(C.gpointer(image))
 
 	if width > MaxSize || height > MaxSize {
 		return nil, errors.New("Maximum image size exceeded")
 	}
+
+	if width == 0 || height == 0 {
+		return nil, errors.New("Minimum image size exceeded")
+	}
+
+	var buf *C.VipsImage
 
 	top, left = max(top), max(left)
 	err := C.vips_extract_area_bridge(image, &buf, C.int(left), C.int(top), C.int(width), C.int(height))
@@ -580,18 +513,13 @@ func vipsSmartCrop(image *C.VipsImage, width, height int) (*C.VipsImage, error) 
 	return buf, nil
 }
 
-func vipsTrim(image *C.VipsImage, background Color, threshold float64) (int, int, int, int, error) {
-	defer C.g_object_unref(C.gpointer(image))
-
+func vipsTrim(image *C.VipsImage, threshold float64) (int, int, int, int, error) {
 	top := C.int(0)
 	left := C.int(0)
 	width := C.int(0)
 	height := C.int(0)
 
-	err := C.vips_find_trim_bridge(image,
-		&top, &left, &width, &height,
-		C.double(background.R), C.double(background.G), C.double(background.B),
-		C.double(threshold))
+	err := C.vips_find_trim_bridge(image, &top, &left, &width, &height, C.double(threshold))
 	if err != 0 {
 		return 0, 0, 0, 0, catchVipsError()
 	}
@@ -667,11 +595,7 @@ func vipsEmbed(input *C.VipsImage, left, top, width, height int, extend Extend, 
 	return image, nil
 }
 
-func vipsAffine(input *C.VipsImage, residualx, residualy float64, i Interpolator, extend Extend) (*C.VipsImage, error) {
-	if extend > 5 {
-		extend = ExtendBackground
-	}
-
+func vipsAffine(input *C.VipsImage, residualx, residualy float64, i Interpolator) (*C.VipsImage, error) {
 	var image *C.VipsImage
 	cstring := C.CString(i.String())
 	interpolator := C.vips_interpolate_new(cstring)
@@ -680,7 +604,7 @@ func vipsAffine(input *C.VipsImage, residualx, residualy float64, i Interpolator
 	defer C.g_object_unref(C.gpointer(input))
 	defer C.g_object_unref(C.gpointer(interpolator))
 
-	err := C.vips_affine_interpolator(input, &image, C.double(residualx), 0, 0, C.double(residualy), interpolator, C.int(extend))
+	err := C.vips_affine_interpolator(input, &image, C.double(residualx), 0, 0, C.double(residualy), interpolator)
 	if err != 0 {
 		return nil, catchVipsError()
 	}
@@ -722,32 +646,13 @@ func vipsImageType(buf []byte) ImageType {
 	//   https://github.com/strukturag/libheif/issues/83#issuecomment-421427091
 	if IsTypeSupported(HEIF) && buf[4] == 0x66 && buf[5] == 0x74 && buf[6] == 0x79 && buf[7] == 0x70 &&
 		buf[8] == 0x68 && buf[9] == 0x65 && buf[10] == 0x69 && buf[11] == 0x63 {
-		// This is a HEIC file, ftypheic
+		// This is a HEIC file
 		return HEIF
 	}
 	if IsTypeSupported(HEIF) && buf[4] == 0x66 && buf[5] == 0x74 && buf[6] == 0x79 && buf[7] == 0x70 &&
 		buf[8] == 0x6d && buf[9] == 0x69 && buf[10] == 0x66 && buf[11] == 0x31 {
-		// This is a HEIF file, ftypmif1
+		// This is a HEIF file
 		return HEIF
-	}
-	if IsTypeSupported(HEIF) && buf[4] == 0x66 && buf[5] == 0x74 && buf[6] == 0x79 && buf[7] == 0x70 &&
-		buf[8] == 0x6d && buf[9] == 0x73 && buf[10] == 0x66 && buf[11] == 0x31 {
-		// This is a HEIFS file, ftypmsf1
-		return HEIF
-	}
-	if IsTypeSupported(HEIF) && buf[4] == 0x66 && buf[5] == 0x74 && buf[6] == 0x79 && buf[7] == 0x70 &&
-		buf[8] == 0x68 && buf[9] == 0x65 && buf[10] == 0x69 && buf[11] == 0x73 {
-		// This is a HEIFS file, ftypheis
-		return HEIF
-	}
-	if IsTypeSupported(HEIF) && buf[4] == 0x66 && buf[5] == 0x74 && buf[6] == 0x79 && buf[7] == 0x70 &&
-		buf[8] == 0x68 && buf[9] == 0x65 && buf[10] == 0x76 && buf[11] == 0x63 {
-		// This is a HEIFS file, ftyphevc
-		return HEIF
-	}
-	if IsTypeSupported(HEIF) && buf[4] == 0x66 && buf[5] == 0x74 && buf[6] == 0x79 && buf[7] == 0x70 &&
-		buf[8] == 0x61 && buf[9] == 0x76 && buf[10] == 0x69 && buf[11] == 0x66 {
-		return AVIF
 	}
 
 	return UNKNOWN

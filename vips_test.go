@@ -58,22 +58,6 @@ func TestVipsSaveTiff(t *testing.T) {
 	}
 }
 
-func TestVipsSaveAvif(t *testing.T) {
-	if !IsTypeSupportedSave(AVIF) {
-		t.Skipf("Format %#v is not supported", ImageTypes[AVIF])
-	}
-	image, _, _ := vipsRead(readImage("test.jpg"))
-	options := vipsSaveOptions{Quality: 95, Type: AVIF, Speed: 8}
-	buf, err := vipsSave(image, options)
-	if err != nil {
-		t.Fatalf("Error saving image type %v: %v", ImageTypes[AVIF], err)
-	}
-
-	if len(buf) == 0 {
-		t.Fatalf("Empty saved '%v' image", ImageTypes[AVIF])
-	}
-}
-
 func TestVipsRotate(t *testing.T) {
 	files := []struct {
 		name   string
@@ -89,47 +73,6 @@ func TestVipsRotate(t *testing.T) {
 		newImg, err := vipsRotate(image, file.rotate)
 		if err != nil {
 			t.Fatal("Cannot rotate the image")
-		}
-
-		buf, _ := vipsSave(newImg, vipsSaveOptions{Quality: 95})
-		if len(buf) == 0 {
-			t.Fatal("Empty image")
-		}
-	}
-}
-
-func TestVipsAutoRotate(t *testing.T) {
-	if VipsMajorVersion <= 8 && VipsMinorVersion < 10 {
-		t.Skip("Skip test in libvips < 8.10")
-		return
-	}
-
-	files := []struct {
-		name         string
-		orientation  int
-	}{
-		{"test.jpg", 0},
-		{"test_exif.jpg", 0},
-		{"exif/Landscape_1.jpg", 0},
-		{"exif/Landscape_2.jpg", 0},
-		{"exif/Landscape_3.jpg", 0},
-		{"exif/Landscape_4.jpg", 0},
-		{"exif/Landscape_5.jpg", 5},
-		{"exif/Landscape_6.jpg", 0},
-		{"exif/Landscape_7.jpg", 7},
-	}
-
-	for _, file := range files {
-		image, _, _ := vipsRead(readImage(file.name))
-
-		newImg, err := vipsAutoRotate(image)
-		if err != nil {
-			t.Fatal("Cannot auto rotate the image")
-		}
-
-		orientation := vipsExifOrientation(newImg)
-		if orientation != file.orientation {
-			t.Fatalf("Invalid image orientation: %d != %d", orientation, file.orientation)
 		}
 
 		buf, _ := vipsSave(newImg, vipsSaveOptions{Quality: 95})
